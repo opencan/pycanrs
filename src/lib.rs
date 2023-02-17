@@ -1,8 +1,10 @@
+use std::fmt::Debug;
+
 use anyhow::Result;
 use pyo3::{
     prelude,
     types::{IntoPyDict, PyDict, PyModule},
-    Py, Python, IntoPy,
+    IntoPy, Py, Python,
 };
 
 pub struct PyCanInterface;
@@ -12,37 +14,33 @@ impl PyCanInterface {
         Python::with_gil(|py| -> Result<()> {
             let can = py.import("can")?;
 
-            let mut args = PyDict::new(py);
+            let args = PyDict::new(py);
             args.update(
                 [
                     ("bustype", "socketcand"),
                     ("host", "side"),
                     ("channel", "vcan0"),
-                ].into_py_dict(py).as_mapping()
+                ]
+                .into_py_dict(py)
+                .as_mapping(),
             )?;
 
-            args.update(
-                [
-                    ("port", 30000)
-                ].into_py_dict(py).as_mapping()
-            )?;
+            args.update([("port", 30000)].into_py_dict(py).as_mapping())?;
 
-            let iface = can.getattr("interface")?.call_method(
-                "Bus",
-                (),
-                Some(args)
-            )?;
+            let iface = can
+                .getattr("interface")?
+                .call_method("Bus", (), Some(args))?;
 
             print!("{iface:?}");
 
             loop {
                 let message = iface.call_method0("recv")?;
 
+                let print = message.to_string();
                 println!("{message:?}");
             }
-
-            todo!()
-        }).unwrap();
+        })
+        .unwrap();
     }
 }
 
