@@ -1,46 +1,63 @@
-use std::fmt::Debug;
-
 use anyhow::Result;
 use pyo3::{
-    prelude,
-    types::{IntoPyDict, PyDict, PyModule},
-    IntoPy, Py, Python,
+    types::{IntoPyDict, PyDict},
+    Py, PyAny, Python, ToPyObject,
 };
 
-pub struct PyCanInterface;
+pub enum PyCanBusType {
+    Socketcand {
+        host: String,
+        channel: String,
+        port: u16,
+    },
+}
+
+pub struct PyCanInterface {
+    pub bustype: PyCanBusType,
+    iface: Py<PyAny>,
+}
 
 impl PyCanInterface {
-    pub fn new_socketcan(dev: &str) {
-        Python::with_gil(|py| -> Result<()> {
-            let can = py.import("can")?;
+    pub fn new(kind: PyCanBusType) -> Result<Self> {
+        let iface = match &kind {
+            PyCanBusType::Socketcand {
+                host,
+                channel,
+                port,
+            } => Python::with_gil(|py| -> Result<Py<PyAny>> {
+                let can = py.import("can")?;
 
-            let args = PyDict::new(py);
-            args.update(
-                [
-                    ("bustype", "socketcand"),
-                    ("host", "side"),
-                    ("channel", "vcan0"),
-                ]
-                .into_py_dict(py)
-                .as_mapping(),
-            )?;
+                let args = PyDict::new(py);
+                args.update(
+                    [
+                        ("bustype", "socketcand"),
+                        ("host", host),
+                        ("channel", channel),
+                    ]
+                    .into_py_dict(py)
+                    .as_mapping(),
+                )?;
 
-            args.update([("port", 30000)].into_py_dict(py).as_mapping())?;
+                args.update([("port", port)].into_py_dict(py).as_mapping())?;
 
-            let iface = can
-                .getattr("interface")?
-                .call_method("Bus", (), Some(args))?;
+                let iface = can
+                    .getattr("interface")?
+                    .call_method("Bus", (), Some(args))?;
 
-            print!("{iface:?}");
+                Ok(iface.to_object(py))
+            }),
+        }?;
 
-            loop {
-                let message = iface.call_method0("recv")?;
-
-                let print = message.to_string();
-                println!("{message:?}");
-            }
+        Ok(Self {
+            bustype: kind,
+            iface,
         })
-        .unwrap();
+    }
+
+    pub fn recv(&self) -> String {
+        Python::with_gil(|py| -> String {
+            self.iface.call_method0(py, "recv").unwrap().to_string()
+        })
     }
 }
 
@@ -50,6 +67,17 @@ mod tests {
 
     #[test]
     fn test_basic() {
-        PyCanInterface::new_socketcan("blah");
+        let can = PyCanInterface::new(PyCanBusType::Socketcand {
+            host: "side".into(),
+            channel: "vcan0".into(),
+            port: 30000,
+        })
+        .unwrap();
+
+        loop {
+            let message = can.recv();
+
+            println!("recv {message:?}");
+        }
     }
 }
