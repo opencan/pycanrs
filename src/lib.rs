@@ -1,8 +1,11 @@
 use anyhow::Result;
+use message::PyCanMessage;
 use pyo3::{
     types::{IntoPyDict, PyDict},
     Py, PyAny, Python, ToPyObject,
 };
+
+pub mod message;
 
 pub enum PyCanBusType {
     Socketcand {
@@ -54,9 +57,13 @@ impl PyCanInterface {
         })
     }
 
-    pub fn recv(&self) -> String {
-        Python::with_gil(|py| -> String {
-            self.iface.call_method0(py, "recv").unwrap().to_string()
+    pub fn recv(&self) -> PyCanMessage {
+        Python::with_gil(|py| -> _ {
+            self.iface
+                .call_method0(py, "recv")
+                .unwrap()
+                .extract(py)
+                .unwrap()
         })
     }
 }
@@ -76,8 +83,7 @@ mod tests {
 
         loop {
             let message = can.recv();
-
-            println!("recv {message:?}");
+            println!("recv {message}");
         }
     }
 }
