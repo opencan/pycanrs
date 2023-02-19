@@ -1,8 +1,7 @@
 use anyhow::Result;
 use message::PyCanMessage;
 use pyo3::{
-    types::{IntoPyDict, PyDict, PyTuple},
-    Py, PyAny, Python, ToPyObject, IntoPy,
+    types::{IntoPyDict, PyCFunction, PyDict, PyTuple}, Py, PyAny, Python, ToPyObject,
 };
 
 pub mod message;
@@ -55,7 +54,7 @@ impl PyCanInterface {
         Ok(Self {
             bustype: kind,
             iface,
-            pycan
+            pycan,
         })
     }
 
@@ -74,13 +73,42 @@ impl PyCanInterface {
             let kwargs = [
                 ("arbitration_id", id.to_object(py)),
                 ("data", data.to_object(py)),
-                ("dlc", data.len().to_object(py))
-            ].into_py_dict(py);
+                ("dlc", data.len().to_object(py)),
+            ]
+            .into_py_dict(py);
 
-            let msg = self.pycan.call_method(py, "Message", (), Some(kwargs)).unwrap();
+            let msg = self
+                .pycan
+                .call_method(py, "Message", (), Some(kwargs))
+                .unwrap();
 
-            self.iface.call_method1(py, "send", PyTuple::new(py, [msg])).unwrap();
+            self.iface
+                .call_method1(py, "send", PyTuple::new(py, [msg]))
+                .unwrap();
         })
+    }
+
+    pub fn recv_spawn(&self) {
+        Python::with_gil(|py| -> Result<()> {
+            let callback = PyCFunction::new_closure(
+                py,
+                Some("pycanrs_callback"),
+                None,
+                |args: &PyTuple, _kwargs: Option<&PyDict>| {
+                    let (msg,) = args.extract::<(PyCanMessage,)>().unwrap();
+
+                    println!("recv by callback: {msg}");
+                },
+            )?;
+
+            let args = PyDict::new(py);
+            args.update([("bus", self.iface.clone())].into_py_dict(py).as_mapping())?;
+            args.update([("listeners", [callback])].into_py_dict(py).as_mapping())?;
+            self.pycan.call_method(py, "Notifier", (), Some(args))?;
+
+            Ok(())
+        })
+        .unwrap();
     }
 }
 
@@ -103,5 +131,18 @@ mod tests {
 
             can.send(message.arbitration_id, &message.data.unwrap());
         }
+    }
+
+    #[test]
+    fn test_basic_spawn() {
+        let can = PyCanInterface::new(PyCanBusType::Socketcand {
+            host: "side".into(),
+            channel: "vcan0".into(),
+            port: 30000,
+        })
+        .unwrap();
+
+        can.recv_spawn();
+        loop {}
     }
 }
