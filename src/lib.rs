@@ -94,25 +94,32 @@ impl PyCanInterface {
         })
     }
 
-    pub fn recv_spawn(&self) {
+    /// Spawn a python-can Notifier to call the provided callback on future
+    /// recieved messages on this interface.
+    pub fn recv_spawn<F>(&self, callback: F)
+    where
+        F: Fn(PyCanMessage) + Send + 'static,
+    {
         Python::with_gil(|py| -> Result<()> {
-            let callback = PyCFunction::new_closure(
+            // Make a shim to extract the PyCanMessage and call the actual callback
+            let callback_shim = PyCFunction::new_closure(
                 py,
                 None,
                 None,
-                |args: &PyTuple, _kwargs: Option<&PyDict>| {
+                move |args: &PyTuple, _kwargs: Option<&PyDict>| {
                     let (msg,) = args.extract::<(PyCanMessage,)>().unwrap();
 
-                    println!("recv by callback: {msg}");
+                    callback(msg);
                 },
             )?;
 
             let args = [
                 py_dict_entry!(py, "bus", self.iface.clone()),
-                py_dict_entry!(py, "listeners", [callback]),
+                py_dict_entry!(py, "listeners", [callback_shim]),
             ]
             .into_py_dict(py);
 
+            // Register the notifier
             self.pycan.call_method(py, "Notifier", (), Some(args))?;
 
             Ok(())
@@ -151,7 +158,9 @@ mod tests {
         })
         .unwrap();
 
-        can.recv_spawn();
+        let cb_print = |msg: PyCanMessage| println!("recv by callback!: {msg}");
+
+        can.recv_spawn(cb_print);
         loop {}
     }
 }
