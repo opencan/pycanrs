@@ -14,6 +14,9 @@ pub enum PyCanBusType {
         channel: String,
         port: u16,
     },
+    Socketcan {
+        channel: String,
+    }
 }
 
 pub struct PyCanInterface {
@@ -55,6 +58,17 @@ impl PyCanInterface {
 
                 Ok(iface)
             }),
+            PyCanBusType::Socketcan { channel } => Python::with_gil(|py| -> Result<_> {
+                let args = [
+                    py_dict_entry!(py, "bustype", "socketcan"),
+                    py_dict_entry!(py, "channel", channel)
+                ].into_py_dict(py);
+
+                let iface = pycan.getattr(py, "interface")?
+                .call_method(py, "Bus", (), Some(args))?;
+
+                Ok(iface)
+            })
         }?;
 
         Ok(Self {
@@ -130,16 +144,22 @@ impl PyCanInterface {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix;
+
     use super::*;
 
     #[test]
     fn test_basic() {
+        #[cfg(not(target_os = "linux"))]
         let can = PyCanInterface::new(PyCanBusType::Socketcand {
             host: "side".into(),
             channel: "vcan0".into(),
             port: 30000,
         })
         .unwrap();
+
+        #[cfg(target_os = "linux")]
+        let can = PyCanInterface::new(PyCanBusType::Socketcan { channel: "vcan0".into() }).unwrap();
 
         loop {
             let message = can.recv();
@@ -151,12 +171,16 @@ mod tests {
 
     #[test]
     fn test_spawn() {
+        #[cfg(not(target_os = "linux"))]
         let can = PyCanInterface::new(PyCanBusType::Socketcand {
             host: "side".into(),
             channel: "vcan0".into(),
             port: 30000,
         })
         .unwrap();
+
+        #[cfg(target_os = "linux")]
+        let can = PyCanInterface::new(PyCanBusType::Socketcan { channel: "vcan0".into() }).unwrap();
 
         let cb_print = |msg: &PyCanMessage| println!("recv by callback!: {msg}");
 
