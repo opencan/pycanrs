@@ -1,7 +1,9 @@
 use anyhow::Result;
 use message::PyCanMessage;
 use pyo3::{
-    types::{IntoPyDict, PyCFunction, PyDict, PyTuple}, Py, PyAny, Python, ToPyObject,
+    intern,
+    types::{IntoPyDict, PyCFunction, PyDict, PyTuple},
+    Py, PyAny, Python, ToPyObject,
 };
 
 pub mod message;
@@ -20,34 +22,38 @@ pub struct PyCanInterface {
     pycan: Py<PyAny>,
 }
 
+/// pyo3 dict entry.
+/// Interns the key, converts the value to a PyObject.
+macro_rules! py_dict_entry {
+    ($py:expr, $x:expr, $y:expr) => {
+        (intern!($py, $x), $y.to_object($py))
+    };
+}
+
 impl PyCanInterface {
     pub fn new(kind: PyCanBusType) -> Result<Self> {
-        let (iface, pycan) = match &kind {
+        let pycan = Python::with_gil(|py| -> Result<_> { Ok(py.import("can")?.to_object(py)) })?;
+
+        let iface = match &kind {
             PyCanBusType::Socketcand {
                 host,
                 channel,
                 port,
             } => Python::with_gil(|py| -> Result<_> {
-                let can = py.import("can")?;
+                let args = [
+                    py_dict_entry!(py, "bustype", "socketcand"),
+                    py_dict_entry!(py, "host", host),
+                    py_dict_entry!(py, "channel", channel),
+                    py_dict_entry!(py, "port", port),
+                ]
+                .into_py_dict(py);
 
-                let args = PyDict::new(py);
-                args.update(
-                    [
-                        ("bustype", "socketcand"),
-                        ("host", host),
-                        ("channel", channel),
-                    ]
-                    .into_py_dict(py)
-                    .as_mapping(),
-                )?;
+                let iface =
+                    pycan
+                        .getattr(py, "interface")?
+                        .call_method(py, "Bus", (), Some(args))?;
 
-                args.update([("port", port)].into_py_dict(py).as_mapping())?;
-
-                let iface = can
-                    .getattr("interface")?
-                    .call_method("Bus", (), Some(args))?;
-
-                Ok((iface.to_object(py), can.to_object(py)))
+                Ok(iface)
             }),
         }?;
 
@@ -61,7 +67,7 @@ impl PyCanInterface {
     pub fn recv(&self) -> PyCanMessage {
         Python::with_gil(|py| -> _ {
             self.iface
-                .call_method0(py, "recv")
+                .call_method0(py, intern!(py, "recv"))
                 .unwrap()
                 .extract(py)
                 .unwrap()
@@ -71,9 +77,9 @@ impl PyCanInterface {
     pub fn send(&self, id: u32, data: &[u8]) {
         Python::with_gil(|py| {
             let kwargs = [
-                ("arbitration_id", id.to_object(py)),
-                ("data", data.to_object(py)),
-                ("dlc", data.len().to_object(py)),
+                py_dict_entry!(py, "arbitration_id", id),
+                py_dict_entry!(py, "data", data),
+                py_dict_entry!(py, "dlc", data.len()),
             ]
             .into_py_dict(py);
 
@@ -92,7 +98,7 @@ impl PyCanInterface {
         Python::with_gil(|py| -> Result<()> {
             let callback = PyCFunction::new_closure(
                 py,
-                Some("pycanrs_callback"),
+                None,
                 None,
                 |args: &PyTuple, _kwargs: Option<&PyDict>| {
                     let (msg,) = args.extract::<(PyCanMessage,)>().unwrap();
@@ -101,9 +107,12 @@ impl PyCanInterface {
                 },
             )?;
 
-            let args = PyDict::new(py);
-            args.update([("bus", self.iface.clone())].into_py_dict(py).as_mapping())?;
-            args.update([("listeners", [callback])].into_py_dict(py).as_mapping())?;
+            let args = [
+                py_dict_entry!(py, "bus", self.iface.clone()),
+                py_dict_entry!(py, "listeners", [callback]),
+            ]
+            .into_py_dict(py);
+
             self.pycan.call_method(py, "Notifier", (), Some(args))?;
 
             Ok(())
@@ -134,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn test_basic_spawn() {
+    fn test_spawn() {
         let can = PyCanInterface::new(PyCanBusType::Socketcand {
             host: "side".into(),
             channel: "vcan0".into(),
