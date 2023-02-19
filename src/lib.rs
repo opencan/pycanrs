@@ -98,7 +98,7 @@ impl PyCanInterface {
     /// recieved messages on this interface.
     pub fn recv_spawn<F>(&self, callback: F)
     where
-        F: Fn(PyCanMessage) + Send + 'static,
+        F: Fn(&PyCanMessage) + Send + 'static,
     {
         Python::with_gil(|py| -> Result<()> {
             // Make a shim to extract the PyCanMessage and call the actual callback
@@ -109,7 +109,7 @@ impl PyCanInterface {
                 move |args: &PyTuple, _kwargs: Option<&PyDict>| {
                     let (msg,) = args.extract::<(PyCanMessage,)>().unwrap();
 
-                    callback(msg);
+                    callback(&msg);
                 },
             )?;
 
@@ -158,7 +158,7 @@ mod tests {
         })
         .unwrap();
 
-        let cb_print = |msg: PyCanMessage| println!("recv by callback!: {msg}");
+        let cb_print = |msg: &PyCanMessage| println!("recv by callback!: {msg}");
 
         can.recv_spawn(cb_print);
         loop {}
