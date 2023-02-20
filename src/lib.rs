@@ -9,6 +9,12 @@ use pyo3::{
 pub mod message;
 
 pub enum PyCanBusType {
+    Gsusb {
+        bitrate: u32,
+        usb_channel: String,
+        usb_bus: u32,
+        usb_address: u32,
+    },
     Socketcan {
         channel: String,
     },
@@ -38,6 +44,32 @@ impl PyCanInterface {
         let pycan = Python::with_gil(|py| -> Result<_> { Ok(py.import("can")?.to_object(py)) })?;
 
         let iface = match &kind {
+            PyCanBusType::Gsusb {
+                bitrate,
+                usb_channel,
+                usb_bus,
+                usb_address,
+            } => Python::with_gil(|py| -> Result<_> {
+                // Note: issues finding libusb on Mac - see:
+                // https://github.com/pyusb/pyusb/issues/355#issuecomment-1214444040
+                // We might have to manually look up libusb to help
+
+                let args = [
+                    py_dict_entry!(py, "bustype", "gs_usb"),
+                    py_dict_entry!(py, "bitrate", bitrate),
+                    py_dict_entry!(py, "channel", usb_channel),
+                    py_dict_entry!(py, "bus", usb_bus),
+                    py_dict_entry!(py, "address", usb_address),
+                ]
+                .into_py_dict(py);
+
+                let iface =
+                    pycan
+                        .getattr(py, "interface")?
+                        .call_method(py, "Bus", (), Some(args)).unwrap();
+
+                Ok(iface)
+            }),
             PyCanBusType::Socketcan { channel } => Python::with_gil(|py| -> Result<_> {
                 let args = [
                     py_dict_entry!(py, "bustype", "socketcan"),
@@ -175,19 +207,30 @@ mod tests {
 
     #[test]
     fn test_spawn() {
-        #[cfg(not(target_os = "linux"))]
-        let can = PyCanInterface::new(PyCanBusType::Socketcand {
-            host: "side".into(),
-            channel: "vcan0".into(),
-            port: 30000,
-        })
-        .unwrap();
+        // #[cfg(not(target_os = "linux"))]
+        // let can = PyCanInterface::new(PyCanBusType::Socketcand {
+        //     host: "side".into(),
+        //     channel: "vcan0".into(),
+        //     port: 30000,
+        // })
+        // .unwrap();
 
-        #[cfg(target_os = "linux")]
-        let can = PyCanInterface::new(PyCanBusType::Socketcan {
-            channel: "vcan0".into(),
-        })
-        .unwrap();
+        // #[cfg(target_os = "linux")]
+        // let can = PyCanInterface::new(PyCanBusType::Socketcan {
+        //     channel: "vcan0".into(),
+        // })
+        // .unwrap();
+
+        Python::with_gil(|py| {
+            println!("{}", py.version());
+        });
+
+        let can = PyCanInterface::new(PyCanBusType::Gsusb {
+            bitrate: 500000,
+            usb_channel: "canable gs_usb".into(),
+            usb_bus: 0,
+            usb_address: 4
+        }).unwrap();
 
         let cb_print = |msg: &PyCanMessage| println!("recv by callback!: {msg}");
 
