@@ -9,13 +9,13 @@ use pyo3::{
 pub mod message;
 
 pub enum PyCanBusType {
+    Socketcan {
+        channel: String,
+    },
     Socketcand {
         host: String,
         channel: String,
         port: u16,
-    },
-    Socketcan {
-        channel: String,
     },
 }
 
@@ -38,16 +38,10 @@ impl PyCanInterface {
         let pycan = Python::with_gil(|py| -> Result<_> { Ok(py.import("can")?.to_object(py)) })?;
 
         let iface = match &kind {
-            PyCanBusType::Socketcand {
-                host,
-                channel,
-                port,
-            } => Python::with_gil(|py| -> Result<_> {
+            PyCanBusType::Socketcan { channel } => Python::with_gil(|py| -> Result<_> {
                 let args = [
-                    py_dict_entry!(py, "bustype", "socketcand"),
-                    py_dict_entry!(py, "host", host),
+                    py_dict_entry!(py, "bustype", "socketcan"),
                     py_dict_entry!(py, "channel", channel),
-                    py_dict_entry!(py, "port", port),
                 ]
                 .into_py_dict(py);
 
@@ -58,10 +52,16 @@ impl PyCanInterface {
 
                 Ok(iface)
             }),
-            PyCanBusType::Socketcan { channel } => Python::with_gil(|py| -> Result<_> {
+            PyCanBusType::Socketcand {
+                host,
+                channel,
+                port,
+            } => Python::with_gil(|py| -> Result<_> {
                 let args = [
-                    py_dict_entry!(py, "bustype", "socketcan"),
+                    py_dict_entry!(py, "bustype", "socketcand"),
+                    py_dict_entry!(py, "host", host),
                     py_dict_entry!(py, "channel", channel),
+                    py_dict_entry!(py, "port", port),
                 ]
                 .into_py_dict(py);
 
