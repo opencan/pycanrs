@@ -15,6 +15,10 @@ pub enum PyCanBusType {
         usb_bus: u32,
         usb_address: u32,
     },
+    Slcan {
+        bitrate: u32,
+        serial_port: String,
+    },
     Socketcan {
         channel: String,
     },
@@ -63,10 +67,28 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
+                let iface = pycan
+                    .getattr(py, "interface")?
+                    .call_method(py, "Bus", (), Some(args))
+                    .unwrap();
+
+                Ok(iface)
+            }),
+            PyCanBusType::Slcan {
+                bitrate,
+                serial_port,
+            } => Python::with_gil(|py| -> Result<_> {
+                let args = [
+                    py_dict_entry!(py, "bustype", "slcan"),
+                    py_dict_entry!(py, "channel", serial_port),
+                    py_dict_entry!(py, "bitrate", bitrate),
+                ]
+                .into_py_dict(py);
+
                 let iface =
                     pycan
                         .getattr(py, "interface")?
-                        .call_method(py, "Bus", (), Some(args)).unwrap();
+                        .call_method(py, "Bus", (), Some(args))?;
 
                 Ok(iface)
             }),
@@ -221,16 +243,22 @@ mod tests {
         // })
         // .unwrap();
 
-        Python::with_gil(|py| {
-            println!("{}", py.version());
-        });
+        // Python::with_gil(|py| {
+        //     println!("{}", py.version());
+        // });
 
-        let can = PyCanInterface::new(PyCanBusType::Gsusb {
+        // let can = PyCanInterface::new(PyCanBusType::Gsusb {
+        //     bitrate: 500000,
+        //     usb_channel: "canable gs_usb".into(),
+        //     usb_bus: 0,
+        //     usb_address: 4
+        // }).unwrap();
+
+        let can = PyCanInterface::new(PyCanBusType::Slcan {
             bitrate: 500000,
-            usb_channel: "canable gs_usb".into(),
-            usb_bus: 0,
-            usb_address: 4
-        }).unwrap();
+            serial_port: "/dev/tty.usbmodem1201".into(),
+        })
+        .unwrap();
 
         let cb_print = |msg: &PyCanMessage| println!("recv by callback!: {msg}");
 
