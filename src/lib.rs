@@ -259,6 +259,7 @@ impl PyCanInterface {
                 .expect("should be able to import builtins")
                 .getattr("type")
                 .expect("builtins should have type()");
+
             let base = (self
                 .pycan
                 .getattr(py, "Listener")
