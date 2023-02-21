@@ -78,10 +78,7 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
-                let iface = pycan
-                    .getattr(py, "interface")?
-                    .call_method(py, "Bus", (), Some(args))
-                    .unwrap();
+                let iface = pycan.call_method(py, "Bus", (), Some(args)).unwrap();
 
                 Ok(iface)
             }),
@@ -96,10 +93,7 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
-                let iface =
-                    pycan
-                        .getattr(py, "interface")?
-                        .call_method(py, "Bus", (), Some(args))?;
+                let iface = pycan.call_method(py, "Bus", (), Some(args))?;
 
                 Ok(iface)
             }),
@@ -110,10 +104,7 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
-                let iface =
-                    pycan
-                        .getattr(py, "interface")?
-                        .call_method(py, "Bus", (), Some(args))?;
+                let iface = pycan.call_method(py, "Bus", (), Some(args))?;
 
                 Ok(iface)
             }),
@@ -130,10 +121,7 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
-                let iface =
-                    pycan
-                        .getattr(py, "interface")?
-                        .call_method(py, "Bus", (), Some(args))?;
+                let iface = pycan.call_method(py, "Bus", (), Some(args))?;
 
                 Ok(iface)
             }),
