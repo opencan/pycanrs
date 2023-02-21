@@ -53,7 +53,7 @@ pub fn main() -> Result<()> {
     can.register_rx_callback(cb, err_cb)?;
 
     // handle Ctrl-c
-    ctrlc::set_handler(move || std::process::exit(0))?;
+    ctrlc::set_handler(|| std::process::exit(0))?;
 
     loop {
         std::thread::sleep(Duration::from_secs(1));
