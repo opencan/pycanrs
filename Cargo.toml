@@ -7,6 +7,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ctrlc = "3.2.5"
 pyo3 = { version = "0.18.1", features = ["auto-initialize"] }
 thiserror = "1.0.38"
 
