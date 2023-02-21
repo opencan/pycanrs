@@ -7,9 +7,7 @@ use pycanrs::*;
 #[derive(Subcommand)]
 enum Bus {
     Slcan {
-        #[clap(short, long)]
         serial_port: String,
-        #[clap(short, long)]
         bitrate: u32,
     },
     Socketcand {
@@ -48,7 +46,11 @@ pub fn main() -> Result<()> {
     })?;
 
     let cb = |msg: &_| println!("{msg}");
-    can.recv_spawn(cb)?;
+    let err_cb = |err: &_| {
+        eprintln!("{err}");
+        std::process::exit(-1);
+    };
+    can.register_rx_callback(cb, err_cb)?;
 
     // handle Ctrl-c
     ctrlc::set_handler(move || std::process::exit(0))?;

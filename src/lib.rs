@@ -1,7 +1,7 @@
 use pyo3::{
     intern,
     types::{IntoPyDict, PyCFunction, PyDict, PyTuple},
-    Py, PyAny, Python, ToPyObject,
+    Py, PyAny, PyErr, Python, ToPyObject,
 };
 use thiserror::Error;
 
@@ -198,31 +198,95 @@ impl PyCanInterface {
         })
     }
 
-    /// Spawn a python-can Notifier to call the provided callback on future
-    /// recieved messages on this interface.
-    pub fn recv_spawn<F>(&self, callback: F) -> Result<(), PyCanError>
+    /// Register the provided callback to be called on future recieved messages
+    /// on this interface.
+    pub fn register_rx_callback<R, E>(&self, on_rx: R, on_error: E) -> Result<(), PyCanError>
     where
-        F: Fn(&PyCanMessage) + Send + 'static,
+        R: Fn(&PyCanMessage) + Send + 'static,
+        E: Fn(&PyErr) + Send + 'static,
     {
         Python::with_gil(|py| -> Result<(), PyCanError> {
             // Make a shim to extract the PyCanMessage and call the actual callback
-            let callback_shim = PyCFunction::new_closure(
+            let rx_shim = PyCFunction::new_closure(
                 py,
                 None,
                 None,
                 move |args: &PyTuple, _kwargs: Option<&PyDict>| {
                     let (msg,) = args.extract::<(PyCanMessage,)>().expect(
-                        "PyCanMessage should always be extractable from argument to python-can Notifier callback",
+                        "PyCanMessage should always be extractable from \
+                          argument to python-can listener callback",
                     );
 
-                    callback(&msg);
+                    on_rx(&msg);
                 },
             )
-            .expect("creation of Notifier callback shim should always succeed");
+            .expect("creation of listener rx callback shim should always succeed");
+
+            // And another shim for on_error
+            let error_shim = PyCFunction::new_closure(
+                py,
+                None,
+                None,
+                move |args: &PyTuple, _kwargs: Option<&PyDict>| {
+                    let err = PyErr::from_value(
+                        args.get_item(0)
+                            .expect("python-can should have passed exception as arg to on_error"),
+                    );
+
+                    on_error(&err);
+                },
+            )
+            .expect("creation of listener on_error callback shim should always succeed");
+
+            // Use type() to make an instance of a class inheriting can.Listener
+            // Equivalent Python is like:
+            // ```
+            //     listener = type("PyCanRsListener", (can.Listener,), {
+            //         "on_message_received": rx_shim,
+            //         "on_error": error_shim
+            //     })
+            //     listener = listener()
+            // ```
+            // So we're doing:
+            // ```
+            //     base = can.Listener
+            //     methods = {"on_message_received": rx_shim, "on_error": error_shim}
+            //     listener = type("PyCanRsListener", base, methods)()
+            // ```
+
+            let type_builtin = py
+                .import("builtins")
+                .expect("should be able to import builtins")
+                .getattr("type")
+                .expect("builtins should have type()");
+            let base = (self
+                .pycan
+                .getattr(py, "Listener")
+                .expect("python-can should have Listener"),)
+                .to_object(py);
+
+            let methods = [
+                py_dict_entry!(py, "on_message_received", rx_shim),
+                py_dict_entry!(py, "on_error", error_shim),
+            ]
+            .into_py_dict(py);
+
+            let type_args = (
+                "PyCanRsListener".to_object(py),
+                base.to_object(py),
+                methods.to_object(py),
+            );
+
+            // call type() and then call the result of that
+            let listener = type_builtin
+                .call1(type_args)
+                .expect("should be able to create class deriving Listener")
+                .call0()
+                .unwrap();
 
             // Register the listener
             self.notifier
-                .call_method1(py, "add_listener", (callback_shim.to_object(py),))
+                .call_method1(py, "add_listener", (listener,))
                 .map_err(|e| PyCanError::FailedToAddListener(e.to_string()))?;
 
             Ok(())
