@@ -32,6 +32,7 @@ pub enum PyCanBusType {
 pub struct PyCanInterface {
     pub bustype: PyCanBusType,
     iface: Py<PyAny>,
+    notifier: Py<PyAny>,
     pycan: Py<PyAny>,
 }
 
@@ -51,10 +52,13 @@ pub enum PyCanError {
     FailedToCreateInterface(String),
     #[error("Failed to create notifier :: `{0}`")]
     FailedToCreateNotifier(String),
+    #[error("Failed to add listener :: `{0}")]
+    FailedToAddListener(String),
 }
 
 impl PyCanInterface {
     pub fn new(kind: PyCanBusType) -> Result<Self, PyCanError> {
+        // Import python-can
         let pycan = Python::with_gil(|py| -> Result<Py<PyAny>, PyCanError> {
             Ok(py
                 .import("can")
@@ -62,6 +66,7 @@ impl PyCanInterface {
                 .to_object(py))
         })?;
 
+        // Set up interface
         let iface = match &kind {
             PyCanBusType::Gsusb {
                 bitrate,
@@ -141,9 +146,24 @@ impl PyCanInterface {
             }),
         }?;
 
+        // Set up notifier thread
+        let notifier = Python::with_gil(|py| -> Result<_, PyCanError> {
+            let args = [
+                py_dict_entry!(py, "bus", iface.clone()),
+                py_dict_entry!(py, "listeners", PyTuple::empty(py)), // no listeners to start
+            ]
+            .into_py_dict(py);
+
+            // Register the notifier
+            pycan
+                .call_method(py, "Notifier", (), Some(args))
+                .map_err(|e| PyCanError::FailedToCreateNotifier(e.to_string()))
+        })?;
+
         Ok(Self {
             bustype: kind,
             iface,
+            notifier,
             pycan,
         })
     }
@@ -198,18 +218,12 @@ impl PyCanInterface {
                     callback(&msg);
                 },
             )
-            .expect("creation of Notifier callback shim function should succeed");
+            .expect("creation of Notifier callback shim should always succeed");
 
-            let args = [
-                py_dict_entry!(py, "bus", self.iface.clone()),
-                py_dict_entry!(py, "listeners", [callback_shim]),
-            ]
-            .into_py_dict(py);
-
-            // Register the notifier
-            self.pycan
-                .call_method(py, "Notifier", (), Some(args))
-                .map_err(|e| PyCanError::FailedToCreateNotifier(e.to_string()))?;
+            // Register the listener
+            self.notifier
+                .call_method1(py, "add_listener", (callback_shim.to_object(py),))
+                .map_err(|e| PyCanError::FailedToAddListener(e.to_string()))?;
 
             Ok(())
         })
