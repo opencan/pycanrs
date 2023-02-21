@@ -1,12 +1,12 @@
-use anyhow::Result;
-use message::PyCanMessage;
 use pyo3::{
     intern,
     types::{IntoPyDict, PyCFunction, PyDict, PyTuple},
     Py, PyAny, Python, ToPyObject,
 };
+use thiserror::Error;
 
 pub mod message;
+use message::PyCanMessage;
 
 pub enum PyCanBusType {
     Gsusb {
@@ -43,9 +43,20 @@ macro_rules! py_dict_entry {
     };
 }
 
+#[derive(Debug, Error)]
+pub enum PyCanError {
+    #[error("Failed to import python-can - is it installed? :: `{0}`")]
+    PythonCanImportFailed(String),
+}
+
 impl PyCanInterface {
-    pub fn new(kind: PyCanBusType) -> Result<Self> {
-        let pycan = Python::with_gil(|py| -> Result<_> { Ok(py.import("can")?.to_object(py)) })?;
+    pub fn new(kind: PyCanBusType) -> anyhow::Result<Self> {
+        let pycan = Python::with_gil(|py| -> Result<Py<PyAny>, PyCanError> {
+            Ok(py
+                .import("can")
+                .map_err(|e| PyCanError::PythonCanImportFailed(e.to_string()))?
+                .to_object(py))
+        })?;
 
         let iface = match &kind {
             PyCanBusType::Gsusb {
@@ -53,7 +64,7 @@ impl PyCanInterface {
                 usb_channel,
                 usb_bus,
                 usb_address,
-            } => Python::with_gil(|py| -> Result<_> {
+            } => Python::with_gil(|py| -> anyhow::Result<_> {
                 // Note: issues finding libusb on Mac - see:
                 // https://github.com/pyusb/pyusb/issues/355#issuecomment-1214444040
                 // We might have to manually look up libusb to help
@@ -77,7 +88,7 @@ impl PyCanInterface {
             PyCanBusType::Slcan {
                 bitrate,
                 serial_port,
-            } => Python::with_gil(|py| -> Result<_> {
+            } => Python::with_gil(|py| -> anyhow::Result<_> {
                 let args = [
                     py_dict_entry!(py, "bustype", "slcan"),
                     py_dict_entry!(py, "channel", serial_port),
@@ -92,7 +103,7 @@ impl PyCanInterface {
 
                 Ok(iface)
             }),
-            PyCanBusType::Socketcan { channel } => Python::with_gil(|py| -> Result<_> {
+            PyCanBusType::Socketcan { channel } => Python::with_gil(|py| -> anyhow::Result<_> {
                 let args = [
                     py_dict_entry!(py, "bustype", "socketcan"),
                     py_dict_entry!(py, "channel", channel),
@@ -110,7 +121,7 @@ impl PyCanInterface {
                 host,
                 channel,
                 port,
-            } => Python::with_gil(|py| -> Result<_> {
+            } => Python::with_gil(|py| -> anyhow::Result<_> {
                 let args = [
                     py_dict_entry!(py, "bustype", "socketcand"),
                     py_dict_entry!(py, "host", host),
@@ -171,7 +182,7 @@ impl PyCanInterface {
     where
         F: Fn(&PyCanMessage) + Send + 'static,
     {
-        Python::with_gil(|py| -> Result<()> {
+        Python::with_gil(|py| -> anyhow::Result<()> {
             // Make a shim to extract the PyCanMessage and call the actual callback
             let callback_shim = PyCFunction::new_closure(
                 py,

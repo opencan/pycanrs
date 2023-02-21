@@ -9,3 +9,4 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.69"
 pyo3 = { version = "0.18.1", features = ["auto-initialize"] }
+thiserror = "1.0.38"
