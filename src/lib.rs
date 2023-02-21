@@ -47,10 +47,14 @@ macro_rules! py_dict_entry {
 pub enum PyCanError {
     #[error("Failed to import python-can - is it installed? :: `{0}`")]
     PythonCanImportFailed(String),
+    #[error("Failed to create python-can interface :: `{0}`")]
+    FailedToCreateInterface(String),
+    #[error("Failed to create notifier :: `{0}`")]
+    FailedToCreateNotifier(String),
 }
 
 impl PyCanInterface {
-    pub fn new(kind: PyCanBusType) -> anyhow::Result<Self> {
+    pub fn new(kind: PyCanBusType) -> Result<Self, PyCanError> {
         let pycan = Python::with_gil(|py| -> Result<Py<PyAny>, PyCanError> {
             Ok(py
                 .import("can")
@@ -64,7 +68,7 @@ impl PyCanInterface {
                 usb_channel,
                 usb_bus,
                 usb_address,
-            } => Python::with_gil(|py| -> anyhow::Result<_> {
+            } => Python::with_gil(|py| -> Result<Py<PyAny>, PyCanError> {
                 // Note: issues finding libusb on Mac - see:
                 // https://github.com/pyusb/pyusb/issues/355#issuecomment-1214444040
                 // We might have to manually look up libusb to help
@@ -78,14 +82,16 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
-                let iface = pycan.call_method(py, "Bus", (), Some(args)).unwrap();
+                let iface = pycan
+                    .call_method(py, "Bus", (), Some(args))
+                    .map_err(|e| PyCanError::FailedToCreateInterface(e.to_string()))?;
 
                 Ok(iface)
             }),
             PyCanBusType::Slcan {
                 bitrate,
                 serial_port,
-            } => Python::with_gil(|py| -> anyhow::Result<_> {
+            } => Python::with_gil(|py| -> Result<Py<PyAny>, PyCanError> {
                 let args = [
                     py_dict_entry!(py, "bustype", "slcan"),
                     py_dict_entry!(py, "channel", serial_port),
@@ -93,26 +99,32 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
-                let iface = pycan.call_method(py, "Bus", (), Some(args))?;
+                let iface = pycan
+                    .call_method(py, "Bus", (), Some(args))
+                    .map_err(|e| PyCanError::FailedToCreateInterface(e.to_string()))?;
 
                 Ok(iface)
             }),
-            PyCanBusType::Socketcan { channel } => Python::with_gil(|py| -> anyhow::Result<_> {
-                let args = [
-                    py_dict_entry!(py, "bustype", "socketcan"),
-                    py_dict_entry!(py, "channel", channel),
-                ]
-                .into_py_dict(py);
+            PyCanBusType::Socketcan { channel } => {
+                Python::with_gil(|py| -> Result<Py<PyAny>, PyCanError> {
+                    let args = [
+                        py_dict_entry!(py, "bustype", "socketcan"),
+                        py_dict_entry!(py, "channel", channel),
+                    ]
+                    .into_py_dict(py);
 
-                let iface = pycan.call_method(py, "Bus", (), Some(args))?;
+                    let iface = pycan
+                        .call_method(py, "Bus", (), Some(args))
+                        .map_err(|e| PyCanError::FailedToCreateInterface(e.to_string()))?;
 
-                Ok(iface)
-            }),
+                    Ok(iface)
+                })
+            }
             PyCanBusType::Socketcand {
                 host,
                 channel,
                 port,
-            } => Python::with_gil(|py| -> anyhow::Result<_> {
+            } => Python::with_gil(|py| -> Result<Py<PyAny>, PyCanError> {
                 let args = [
                     py_dict_entry!(py, "bustype", "socketcand"),
                     py_dict_entry!(py, "host", host),
@@ -121,7 +133,9 @@ impl PyCanInterface {
                 ]
                 .into_py_dict(py);
 
-                let iface = pycan.call_method(py, "Bus", (), Some(args))?;
+                let iface = pycan
+                    .call_method(py, "Bus", (), Some(args))
+                    .map_err(|e| PyCanError::FailedToCreateInterface(e.to_string()))?;
 
                 Ok(iface)
             }),
@@ -166,22 +180,25 @@ impl PyCanInterface {
 
     /// Spawn a python-can Notifier to call the provided callback on future
     /// recieved messages on this interface.
-    pub fn recv_spawn<F>(&self, callback: F)
+    pub fn recv_spawn<F>(&self, callback: F) -> Result<(), PyCanError>
     where
         F: Fn(&PyCanMessage) + Send + 'static,
     {
-        Python::with_gil(|py| -> anyhow::Result<()> {
+        Python::with_gil(|py| -> Result<(), PyCanError> {
             // Make a shim to extract the PyCanMessage and call the actual callback
             let callback_shim = PyCFunction::new_closure(
                 py,
                 None,
                 None,
                 move |args: &PyTuple, _kwargs: Option<&PyDict>| {
-                    let (msg,) = args.extract::<(PyCanMessage,)>().unwrap();
+                    let (msg,) = args.extract::<(PyCanMessage,)>().expect(
+                        "PyCanMessage should always be extractable from argument to python-can Notifier callback",
+                    );
 
                     callback(&msg);
                 },
-            )?;
+            )
+            .expect("creation of Notifier callback shim function should succeed");
 
             let args = [
                 py_dict_entry!(py, "bus", self.iface.clone()),
@@ -190,11 +207,12 @@ impl PyCanInterface {
             .into_py_dict(py);
 
             // Register the notifier
-            self.pycan.call_method(py, "Notifier", (), Some(args))?;
+            self.pycan
+                .call_method(py, "Notifier", (), Some(args))
+                .map_err(|e| PyCanError::FailedToCreateNotifier(e.to_string()))?;
 
             Ok(())
         })
-        .unwrap();
     }
 }
 
@@ -261,7 +279,7 @@ mod tests {
 
         let cb_print = |msg: &PyCanMessage| println!("recv by callback!: {msg}");
 
-        can.recv_spawn(cb_print);
+        can.recv_spawn(cb_print).unwrap();
         loop {}
     }
 }
