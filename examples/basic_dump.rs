@@ -68,7 +68,7 @@ pub fn main() -> Result<()> {
     let cb = move |msg: &PyCanMessage| {
         let mut data = String::new();
         for byte in msg.data.as_ref().unwrap() {
-            data += &format!("{:X} ", byte);
+            data += &format!("{:02X} ", byte);
         }
         let data = data.trim();
 
