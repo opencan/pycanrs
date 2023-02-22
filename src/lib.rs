@@ -6,7 +6,7 @@ use pyo3::{
 use thiserror::Error;
 
 pub mod message;
-use message::PyCanMessage;
+pub use message::PyCanMessage;
 
 pub enum PyCanBusType {
     Gsusb {
