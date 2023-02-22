@@ -249,7 +249,7 @@ impl PyCanInterface {
             // ```
             // So we're doing:
             // ```
-            //     base = can.Listener
+            //     base = (can.Listener,)
             //     methods = {"on_message_received": rx_shim, "on_error": error_shim}
             //     listener = type("PyCanRsListener", base, methods)()
             // ```

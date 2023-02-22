@@ -1,7 +1,7 @@
 use pyo3::prelude::*;
 use std::fmt::{Debug, Display};
 
-#[derive(Debug, FromPyObject)]
+#[derive(Clone, Debug, FromPyObject)]
 pub struct PyCanMessage {
     pub arbitration_id: u32,
     pub data: Option<Vec<u8>>,
