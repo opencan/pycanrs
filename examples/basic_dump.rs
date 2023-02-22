@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use pycanrs::{*, message::PyCanMessage};
+use pycanrs::{message::PyCanMessage, *};
 
 #[derive(Subcommand)]
 enum Bus {
@@ -21,6 +21,10 @@ enum Bus {
 struct Args {
     #[clap(subcommand)]
     bus: Bus,
+    /// Make output extra-compatible with candump.
+    /// Useful for `cantools decode`.
+    #[clap(short)]
+    compat: bool,
 }
 
 pub fn main() -> Result<()> {
@@ -45,9 +49,20 @@ pub fn main() -> Result<()> {
         },
     })?;
 
-    let iface_name = match args.bus {
-        Bus::Slcan { serial_port, .. } => serial_port,
-        Bus::Socketcand { host, port, channel } => format!("{channel}@{host}:{port}"),
+    let iface_name = if args.compat {
+        match args.bus {
+            Bus::Slcan { .. } => "slcan".to_string(),
+            Bus::Socketcand { .. } => "socketcand".to_string(),
+        }
+    } else {
+        match args.bus {
+            Bus::Slcan { serial_port, .. } => serial_port,
+            Bus::Socketcand {
+                host,
+                port,
+                channel,
+            } => format!("{channel}@{host}:{port}"),
+        }
     };
 
     let cb = move |msg: &PyCanMessage| {
@@ -57,8 +72,11 @@ pub fn main() -> Result<()> {
         }
         let data = data.trim();
 
-        println!("  {iface_name}  {:08X}   [{}]  {data}",
-                msg.arbitration_id, msg.dlc.unwrap());
+        println!(
+            "  {iface_name}  {:08X}   [{}]  {data}",
+            msg.arbitration_id,
+            msg.dlc.unwrap()
+        );
     };
 
     let err_cb = |err: &_| {
